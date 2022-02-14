@@ -1,6 +1,5 @@
 #!python3
 from urllib import request
-from numpy import number
 import requests
 import argparse
 import json
