@@ -1,5 +1,6 @@
 #!python3
 from urllib import request
+from numpy import number
 import requests
 import argparse
 import json
@@ -90,10 +91,14 @@ raw_review_list = []
 
 if args.filter == "recent" or args.filter == "updated":
     reviews = True
+    number_of_reviews = 0
     while reviews:
         print("Queried: " + url + cursor)
         resp = requests.get(url + cursor)
         data = json.loads(resp.content)
+        number_of_reviews += data.get("query_summary").get("num_reviews")
+        print(f"Number of reviews: {number_of_reviews}")
+
         if data.get("query_summary").get("num_reviews") == 0:
             reviews = False
         else:
@@ -102,14 +107,19 @@ if args.filter == "recent" or args.filter == "updated":
             new_cursor = data.get("cursor")
             cursor = f"&cursor={urllib.parse.quote(new_cursor)}"
 else:
+    print("Queried: " + url + cursor)
     resp = requests.get(url + cursor)
     data = json.loads(resp.content)
+    number_of_reviews = data.get("query_summary").get("num_reviews")
+    print(f"Number of reviews: {number_of_reviews}")
+
     for item in data.get("reviews"):
         raw_review_list.append(item)
 
 review_list = []
 
 for review in raw_review_list:
+    # Add fields
     playtime = review.get("author").get("playtime_at_review")/60
     language = review.get("language")
     body = review.get("review")
@@ -117,24 +127,40 @@ for review in raw_review_list:
     recommend = review.get("voted_up")
     weighted_vote_score = review.get("weighted_vote_score")
 
+    # Add to list of reviews
     review_list.append({"playtime": playtime, "language": language, "body": body,
                        "time_created": time_created, "recommend": recommend, "weighted_vote_score": weighted_vote_score})
 
 if args.translate:
+    # Use DeepL API to translate any non-english comments
     import deepl
     if args.deepl_api_key == None:
-        print("ERROR: A valid deepl API key must be provided if translating!")
+        print("ERROR: A valid DeepL API key must be provided if translating!")
         exit()
     translator = deepl.Translator(args.deepl_api_key)
 
+    # Find number of non-english reviews
+    non_english = sum(x.get("language") != "english" for x in review_list)
+    # Calculat total character usage
+    total_characters = sum(len(x.get("body")) if x.get(
+        "language") != "english" else 0 for x in review_list)
+    print(
+        f"Translating {non_english} reviews, total of {total_characters} characters")
+
+    count = 0
+    characters = 0
     for review in review_list:
         if review.get("language") != "english":
-            print("Translating reviews...")
+            count += 1
+            characters += len(review.get("body"))
+            print(
+                f"Translating {count}/{non_english} reviews, {characters}/{total_characters} characters...")
             result = translator.translate_text(
                 review.get("body"), target_lang="EN-GB")
             review["body"] = str(result)
 
 
+# Output to CSV file
 with open(args.output_file, "w", newline="", encoding="utf-8") as output_file:
     dict_writer = csv.DictWriter(output_file, review_list[0].keys())
     dict_writer.writeheader()
